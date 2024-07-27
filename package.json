@@ -1,6 +1,6 @@
 {
   "name": "@aytee/ez-image",
-  "version": "0.0.12",
+  "version": "0.0.18",
   "description": "Cache and resize images easily using this image component",
   "main": "index.ts",
   "scripts": {

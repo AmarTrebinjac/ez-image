@@ -1,19 +1,12 @@
 "use client";
 
-import React, {
-  ImgHTMLAttributes,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
-import { createPortal } from "react-dom";
+import React, { ImgHTMLAttributes, useEffect, useRef, useState } from "react";
 import { Size } from "./types";
 
 type ImageProps = Omit<
   ImgHTMLAttributes<HTMLImageElement>,
   "sizes" | "height" | "width"
 > & {
-  alt?: string;
   className?: string;
   sizes?: Size[];
   preload?: boolean;
@@ -36,22 +29,54 @@ const __DEFAULT_SIZES__: Size[] = [
  *
  * Contains default breakpoints width
  * of 320, 480, 768, 1024, 1440, 1920, 2560, 3840 pixels.
+ *
+ * Note: Does not cache images in development mode.
  */
 const Image = ({
   src,
   sizes = __DEFAULT_SIZES__,
-  preload = true,
+  preload = false,
   ...rest
 }: ImageProps) => {
-  const bodyRef = useRef(document.getElementsByTagName("body")[0]);
+  const bodyRef = useRef<HTMLElement | null>(null);
   const [currentSize, setCurrentSize] = useState<Size | undefined>();
   const sizeSet = getWidths(sizes);
-  const srcSet = createSrcSet(`//wsrv.nl?url=${src}`, sizes);
+  const srcSet = createSrcSet(src, sizes);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
+    bodyRef.current = document.body;
+
+    if (preload) {
+      const head = document.head;
+
+      const preconnectLink: HTMLLinkElement | null = head.querySelector(
+        'link[href="//wsrv.nl"]'
+      );
+
+      if (!preconnectLink) {
+        const newPreconnectLink = document.createElement("link");
+        newPreconnectLink.rel = "preconnect";
+        newPreconnectLink.href = "//wsrv.nl";
+        head.appendChild(newPreconnectLink);
+      }
+
+      const preloadLink: HTMLLinkElement | null = head.querySelector(
+        `link[as="image"][imageSrcset="${srcSet}"][imageSizes="${sizeSet}"]`
+      );
+
+      if (!preloadLink) {
+        const newPreloadLink = document.createElement("link");
+        newPreloadLink.rel = "preload";
+        newPreloadLink.as = "image";
+        newPreloadLink.imageSrcset = srcSet;
+        newPreloadLink.imageSizes = sizeSet;
+
+        head.appendChild(newPreloadLink);
+      }
+    }
+
     const handleResize = () => {
-      const viewportWidth = bodyRef.current.clientWidth;
-
+      const viewportWidth = bodyRef!.current!.clientWidth;
       let currSize;
       // Get the breakpoint that is less than the viewport width, but closest to it
       for (const size of sizes.filter(({ width }) => width <= viewportWidth)) {
@@ -70,46 +95,13 @@ const Image = ({
   }, []);
 
   return (
-    <>
-      {preload && (
-        <>
-          <PreconnectResources />
-          <PreloadResource srcSet={srcSet} sizes={sizeSet} />
-        </>
-      )}
-      <img
-        srcSet={srcSet}
-        sizes={sizeSet}
-        {...rest}
-        height={currentSize?.height && `${currentSize.height}px`}
-        width={currentSize?.width && `${currentSize.width}px`}
-        // For some reason height and width property are getting ignored in certain cases, so we set the height & width using the style prop as well.
-        style={{
-          ...rest.style,
-          height: currentSize?.height && `${currentSize.height}px`,
-          width: currentSize?.width && `${currentSize.width}px`,
-        }}
-      />
-    </>
-  );
-};
-
-const PreconnectResources = () => {
-  const headNode = document.getElementsByTagName("head")[0];
-  return createPortal(<link rel="preconnect" href="//wsrv.nl" />, headNode);
-};
-
-type PreloadProps = {
-  srcSet?: string;
-  sizes?: string;
-};
-
-const PreloadResource = ({ srcSet, sizes }: PreloadProps) => {
-  const headNode = document.getElementsByTagName("head")[0];
-
-  return createPortal(
-    <link rel="preload" as="image" imageSrcSet={srcSet} imageSizes={sizes} />,
-    headNode
+    <img
+      srcSet={srcSet}
+      sizes={sizeSet}
+      {...rest}
+      height={currentSize?.height && `${currentSize.height}px`}
+      width={currentSize?.width && `${currentSize.width}px`}
+    />
   );
 };
 
@@ -117,9 +109,28 @@ const getWidths = (sizes: Size[]) =>
   sizes.map(({ width }) => `(max-width: ${width}px) ${width}px`).join(", ");
 
 const createSrcSet = (src: string, sizes: Size[], height: string = "") => {
+  let trueSrc = src;
+
+  // We need to have a valid url to actually cache static images.
+  if (process.env.NODE_ENV === "production") {
+    if (!isDomain(src)) {
+      trueSrc = src.startsWith("/")
+        ? window.location.origin + src
+        : window.location.origin + "/" + src;
+    }
+    trueSrc = "//wsrv.nl?url=" + trueSrc;
+  }
+
   return sizes
-    .map(({ width, height }) => `${src}?w=${width}&h=${height} ${width}w`)
+    .map(({ width, height }) => `${trueSrc}?w=${width}&h=${height} ${width}w`)
     .join(", ");
 };
 
+// TODO: Find a better and more reliable way to check if the path is a domain.
+function isDomain(path: string) {
+  return (
+    /^(https?:\/\/|www\.)/i.test(path) ||
+    /^[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}/i.test(path)
+  );
+}
 export default Image;
