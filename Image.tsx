@@ -11,6 +11,7 @@ type ImageProps = Omit<
   sizes?: Size[];
   preload?: boolean;
   src: string;
+  origin?: string;
 };
 
 const __DEFAULT_SIZES__: Size[] = [
@@ -30,21 +31,43 @@ const __DEFAULT_SIZES__: Size[] = [
  * Contains default breakpoints width
  * of 320, 480, 768, 1024, 1440, 1920, 2560, 3840 pixels.
  *
- * Note: Does not cache images in development mode.
+ * **Note**: Static images included in your project need to define the "origin" prop on the \<Image /> component.
+ *
+ *  Images that include the "origin" prop will not be cached in development mode.
+ *
+ * @example
+ * const sizes: Size[] = [
+ * { width: 320, height: 568 },
+ * { width: 768, height: 1024 },
+ * { width: 1920, height: 1080 }
+ *];
+ *
+ * Sample web image:
+ * <Image
+ *    src="https://someAWSBucket.com/myImage"
+ *    sizes={sizes}
+ *  />
+ *
+ * Sample static image:
+ * <Image
+ *    origin="https://myWebsite.com"
+ *    src="/static/myImage.webp"
+ *    sizes={sizes}
+ *  />
  */
 const Image = ({
   src,
   sizes = __DEFAULT_SIZES__,
   preload = false,
+  origin,
   ...rest
 }: ImageProps) => {
-  const bodyRef = useRef<HTMLElement | null>(null);
   const [currentSize, setCurrentSize] = useState<Size | undefined>();
   const sizeSet = getWidths(sizes);
-  const srcSet = createSrcSet(src, sizes);
+  const srcSet = createSrcSet(src, sizes, origin);
 
   useEffect(() => {
-    bodyRef.current = document.body;
+    const body = document.body;
 
     if (preload) {
       const head = document.head;
@@ -76,7 +99,7 @@ const Image = ({
     }
 
     const handleResize = () => {
-      const viewportWidth = bodyRef!.current!.clientWidth;
+      const viewportWidth = body?.clientWidth;
       let currSize;
       // Get the breakpoint that is less than the viewport width, but closest to it
       for (const size of sizes.filter(({ width }) => width <= viewportWidth)) {
@@ -108,17 +131,16 @@ const Image = ({
 const getWidths = (sizes: Size[]) =>
   sizes.map(({ width }) => `(max-width: ${width}px) ${width}px`).join(", ");
 
-const createSrcSet = (src: string, sizes: Size[], height: string = "") => {
+const createSrcSet = (src: string, sizes: Size[], origin?: string) => {
   let trueSrc = src;
 
-  // We need to have a valid url to actually cache static images.
-  if (process.env.NODE_ENV === "production") {
-    if (!isDomain(src)) {
-      trueSrc = src.startsWith("/")
-        ? window.location.origin + src
-        : window.location.origin + "/" + src;
-    }
+  if (!origin) {
     trueSrc = "//wsrv.nl?url=" + trueSrc;
+  } else if (process.env.NODE_ENV === "production") {
+    const srcWithOrigin = src.startsWith("/")
+      ? origin + src
+      : origin + "/" + src;
+    trueSrc = "//wsrv.nl?url=" + srcWithOrigin;
   }
 
   return sizes
@@ -126,11 +148,4 @@ const createSrcSet = (src: string, sizes: Size[], height: string = "") => {
     .join(", ");
 };
 
-// TODO: Find a better and more reliable way to check if the path is a domain.
-function isDomain(path: string) {
-  return (
-    /^(https?:\/\/|www\.)/i.test(path) ||
-    /^[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}/i.test(path)
-  );
-}
 export default Image;
